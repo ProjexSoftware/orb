@@ -82,11 +82,13 @@ class Collection(object):
         self.__record = record
         self.__collector = collector
 
-        if records is not None and len(records) > 0:
-            if self.__model is None:
-                self.__model = type(records[0])
+        if records is not None:
+            print getattr(self.__model,'__abstract__',False)
+            if len(records) > 0 or getattr(self.__model,'__abstract__',False):
+                if self.__model is None:
+                    self.__model = type(records[0])
 
-            self.__cache['records'][self.__context] = records
+                self.__cache['records'][self.__context] = records
 
     def __len__(self):
         return self.count()
@@ -484,7 +486,7 @@ class Collection(object):
         else:
             context['page'] = None
             context['limit'] = None
-            
+
             fraction = self.count(**context) / float(size)
             count = int(fraction)
             if count % 1:
