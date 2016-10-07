@@ -52,6 +52,7 @@ class Schema(object):
                  dbname='',
                  display='',
                  inherits='',
+                 group='',
                  database='',
                  namespace='',
                  idColumn='id',
@@ -62,6 +63,7 @@ class Schema(object):
 
         default_db_name = inflection.pluralize(inflection.underscore(name))
         self.__name = name
+        self.__group = group
         self.__dbname = dbname or default_db_name
         self.__database = database
         self.__namespace = namespace
@@ -285,6 +287,22 @@ class Schema(object):
         """
         return self.__display or inflection.titleize(self.__name)
 
+    def generate_model(self):
+        """
+        Generates a new dynamic model class type based on this schema.
+
+        :return: subclass of <orb.Model>
+        """
+        args = {
+            '__register__': False,
+            '__schema__': self
+        }
+        new_model = type(self.name(), (orb.Table,), args)
+        return new_model
+
+    def group(self):
+        return self.__group
+
     def hasColumn(self, column, recurse=True, flags=0):
         """
         Returns whether or not this column exists within the list of columns
@@ -344,18 +362,17 @@ class Schema(object):
             yield ischema
             inherits = ischema.inherits()
 
-    def model(self, autoGenerate=False):
+    def model(self, auto_generate=False):
         """
         Returns the default Table class that is associated with this \
         schema instance.
         
-        :param      autoGenerate | <bool>
+        :param      auto_generate | <bool>
         
         :return     <subclass of Table>
         """
-        if self.__model is None and autoGenerate:
-            self.__model = orb.system.generateModel(self)
-            self.setModel(self.__model)
+        if self.__model is None and auto_generate:
+            self.__model = self.generate_model()
         return self.__model
 
     def name(self):
@@ -373,10 +390,12 @@ class Schema(object):
         :return: <str>
         """
         context = orb.Context(**context)
-        if context.forceNamespace:
-            return context.namespace or self.__namespace
+        if context.force_namespace and context.namespace:
+            return context.namespace
+        elif self.__namespace:
+            return self.__namespace
         else:
-            return self.__namespace or context.namespace
+            return context.namespace
 
     def register(self, item):
         """

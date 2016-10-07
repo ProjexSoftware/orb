@@ -5,7 +5,6 @@ database classes.
 
 import logging
 import projex.rest
-import projex.security
 import projex.text
 
 from collections import defaultdict
@@ -62,7 +61,7 @@ class Model(object):
 
         # don't include the column names
         if context.returning == 'values':
-            schema_fields = {c.field() for c in context.schemaColumns(self.schema())}
+            schema_fields = {c.field() for c in context.schema_columns(self.schema())}
             output = tuple(value for field, value in self if field in schema_fields)
             if len(output) == 1:
                 output = output[0]
@@ -417,12 +416,12 @@ class Model(object):
 
         return output
 
-    def collect(self, name, useMethod=False, **context):
+    def collect(self, name, use_method=False, **context):
         collector = self.schema().collector(name)
         if not collector:
             raise orb.errors.ColumnNotFound(schema=self.schema(), column=name)
         else:
-            return collector(self, useMethod=useMethod, **context)
+            return collector(self, use_method=use_method, **context)
 
     def context(self, **context):
         """
@@ -479,7 +478,7 @@ class Model(object):
 
         return count
 
-    def get(self, column, useMethod=True, **context):
+    def get(self, column, use_method=True, **context):
         """
         Returns the value for the column for this record.
 
@@ -527,21 +526,16 @@ class Model(object):
                             curr = {parts[x]: curr}
                         sub_expand.update(curr)
 
-                value = value.get(part, useMethod=useMethod, **sub_context)
+                value = value.get(part, use_method=use_method, **sub_context)
                 if value is None:
                     return None
 
-            return value.get(parts[-1], useMethod=useMethod, **context)
+            return value.get(parts[-1], use_method=use_method, **context)
 
         # otherwise, lookup a column
         else:
             my_context = self.context()
-
-            for k, v in my_context.raw_values.items():
-                if k not in orb.Context.QueryFields:
-                    context.setdefault(k, v)
-
-            sub_context = orb.Context(**context)
+            sub_context = my_context.sub_context(**context)
 
             # normalize the given column
             if isinstance(column, orb.Column):
@@ -559,7 +553,7 @@ class Model(object):
                         try:
                             return self.__cache[collector][sub_context]
                         except KeyError:
-                            records = collector(self, useMethod=useMethod, context=sub_context)
+                            records = collector(self, use_method=use_method, context=sub_context)
                             self.__cache[collector][sub_context] = records
                             return records
                     else:
@@ -575,7 +569,7 @@ class Model(object):
                 return self.get(col.shortcut(), **context)
 
             # call the getter method fot this record if one exists
-            elif useMethod and col.gettermethod():
+            elif use_method and col.gettermethod():
                 return col.gettermethod()(self, context=sub_context)
 
             else:
@@ -598,8 +592,8 @@ class Model(object):
 
     def id(self, **context):
         column = self.schema().idColumn()
-        useMethod = column.name() != 'id'
-        return self.get(column, useMethod=useMethod, **context)
+        use_method = column.name() != 'id'
+        return self.get(column, use_method=use_method, **context)
 
     def init(self):
         columns = self.schema().columns().values()
@@ -634,8 +628,11 @@ class Model(object):
 
         :return     <bool>
         """
-        if db in (None, self.context().db):
-            col = self.schema().column(self.schema().idColumn())
+        if db is not None:
+            same_db = db == self.context().db
+
+        if db is None or same_db:
+            col = self.schema().idColumn()
             with ReadLocker(self.__dataLock):
                 if col not in self.__loaded or self.__values[col.name()][0] is None:
                     return False
@@ -643,7 +640,15 @@ class Model(object):
         else:
             return None
 
-    def preload(self, name):
+    def preloaded_data(self, name):
+        """
+        Returns raw backend data that has been preloaded for
+        the given data name.
+
+        :param name: <str>
+
+        :return: <dict>
+        """
         return self.__preload.get(name) or {}
 
     def save(self, values=None, after=None, before=None, **context):
@@ -730,7 +735,7 @@ class Model(object):
             self.onPostSave(event)
         return True
 
-    def set(self, column, value, useMethod=True, **context):
+    def set(self, column, value, use_method=True, **context):
         """
         Sets the value for this record at the inputted column
         name.  If the columnName provided doesn't exist within
@@ -749,19 +754,15 @@ class Model(object):
             collector = self.schema().collector(column)
             if collector:
                 my_context = self.context()
+                sub_context = my_context.sub_context(**context)
 
-                for k, v in my_context.raw_values.items():
-                    if k not in orb.Context.QueryFields:
-                        context.setdefault(k, v)
-
-                sub_context = orb.Context(**context)
                 method = collector.settermethod()
-                if method and useMethod:
+                if method and use_method:
                     return method(self, value, context=sub_context)
                 else:
                     records = self.get(collector.name(), context=sub_context)
                     records.update(value,
-                                   useMethod=useMethod,
+                                   use_method=use_method,
                                    context=sub_context)
 
                     # remove any preloaded values from the collector
@@ -775,7 +776,7 @@ class Model(object):
             raise errors.ColumnReadOnly(schema=self.schema(), column=column)
 
         context = self.context(**context)
-        if useMethod:
+        if use_method:
             method = col.settermethod()
             if method:
                 keywords = list(funcutil.extract_keywords(method))
@@ -839,7 +840,7 @@ class Model(object):
             return False
 
     def setId(self, value, **context):
-        return self.set(self.schema().idColumn(), value, useMethod=False, **context)
+        return self.set(self.schema().idColumn(), value, use_method=False, **context)
 
     def update(self, values, **context):
         """
@@ -1249,7 +1250,7 @@ class Model(object):
         :return     [ <cls>, .. ] || { <variant> grp: <variant> result, .. }
         """
         rset_type = getattr(cls, 'Collection', orb.Collection)
-        return rset_type(model=cls, **context)
+        return rset_type(**context).bind_model(cls)
 
     @classmethod
     def setBaseQuery(cls, query):

@@ -76,6 +76,8 @@ def test_pg_api_get_user_groups(orb, User):
     assert user is not None
 
     groups = user.get('groups')
+    import pprint
+    pprint.pprint(groups.context().where.__json__())
     assert len(groups) == 1
 
 def test_pg_api_get_group_users(orb, Group):
@@ -215,10 +217,11 @@ def test_pg_api_collection_index(orb, User):
     users = User.select()
     urecords = users.records()
     assert users.index(urecords[0]) == 0
-    assert users.index(None) == -1
+    with pytest.raises(ValueError):
+        assert users.index(None)
 
     with pytest.raises(ValueError):
-        assert users.index(User()) == -1
+        assert users.index(User())
 
     with pytest.raises(ValueError):
         assert User.select().index(User())
